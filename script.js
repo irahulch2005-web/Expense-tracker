@@ -844,29 +844,66 @@ function exportToCSV() {
     return;
   }
 
-  const headers = ['ID','Name','Amount','Type','Category','Date','Note'];
-  const rows = transactions.map(t => [
-    t.id,
-    `"${t.name.replace(/"/g, '""')}"`,
-    t.amount,
-    t.type,
-    CATEGORY_META[t.category]?.label || t.category,
-    t.date,
-    `"${(t.note || '').replace(/"/g, '""')}"`,
-  ]);
+  // ── Helper: wrap value safely for CSV ──
+  const cell = v => `"${String(v).replace(/"/g, '""')}"`;
 
-  const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+  // ── Summary block at top ──
+  const totals   = sumTx(transactions);
+  const balance  = totals.income - totals.expense;
+  const rate     = totals.income > 0 ? ((balance / totals.income) * 100).toFixed(1) : '0.0';
+
+  const summaryRows = [
+    ['SPENDLY — EXPENSE REPORT', '', '', '', '', '', ''],
+    ['Generated on', new Date().toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' }), '', '', '', '', ''],
+    ['', '', '', '', '', '', ''],
+    ['SUMMARY', '', '', '', '', '', ''],
+    ['Total Income',  '₹' + totals.income.toFixed(2),  '', '', '', '', ''],
+    ['Total Expenses','₹' + totals.expense.toFixed(2), '', '', '', '', ''],
+    ['Net Balance',   '₹' + balance.toFixed(2),        '', '', '', '', ''],
+    ['Savings Rate',  rate + '%',                       '', '', '', '', ''],
+    ['', '', '', '', '', '', ''],
+    ['TRANSACTIONS', '', '', '', '', '', ''],
+  ];
+
+  // ── Column headers ──
+  const headers = ['#', 'Name', 'Amount (₹)', 'Type', 'Category', 'Date', 'Note'];
+
+  // ── Data rows (clean, no ugly IDs) ──
+  const dataRows = transactions
+    .slice()
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .map((t, i) => [
+      i + 1,
+      cell(t.name),
+      t.type === 'expense' ? -Math.abs(t.amount) : t.amount,
+      t.type.charAt(0).toUpperCase() + t.type.slice(1),
+      cell(CATEGORY_META[t.category]?.label || t.category),
+      cell(fmtDate(t.date)),
+      cell(t.note || '—'),
+    ]);
+
+  // ── Combine all rows ──
+  const allRows = [
+    ...summaryRows.map(r => r.map(v => typeof v === 'string' && v ? cell(v) : v).join(',')),
+    headers.map(h => cell(h)).join(','),
+    ...dataRows.map(r => r.join(',')),
+  ];
+
+  // Add BOM so Excel opens with correct encoding (fixes ₹ symbol)
+  const BOM = '\uFEFF';
+  const csv = BOM + allRows.join('\n');
+
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href     = url;
-  link.download = `spendly_transactions_${today()}.csv`;
+  link.download = `Spendly_Report_${today()}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 
-  showToast('CSV exported successfully!', 'success');
+  showToast('Report exported! Open with Excel or Google Sheets.', 'success');
 }
 
 /* ─────────────────────────────────────────────────────────────
