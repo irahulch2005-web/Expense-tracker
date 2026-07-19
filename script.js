@@ -57,7 +57,7 @@ const DOM = {
   googleLoginBtn: $('googleLoginBtn'), logoutBtn: $('logoutBtn'),
   userAvatar: $('userAvatar'), userName: $('userName'), userEmail: $('userEmail'),
   sidebar: $('sidebar'), sidebarClose: $('sidebarClose'), hamburger: $('hamburger'),
-  themeToggle: $('themeToggle'), themeIcon: $('themeIcon'), themeLabel: $('themeLabel'),
+  themeToggle: null, themeIcon: null, themeLabel: null,
   pageTitle: $('pageTitle'), exportBtn: $('exportBtn'), openAddModal: $('openAddModal'),
   totalBalance: $('totalBalance'), totalIncome: $('totalIncome'), totalExpense: $('totalExpense'),
   savingsRate: $('savingsRate'), recentList: $('recentList'),
@@ -113,12 +113,14 @@ function initTheme() {
   const saved = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(saved, false);
 }
+
 function applyTheme(theme, rebuild=true) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem(THEME_KEY, theme);
-  DOM.themeIcon.setAttribute('data-lucide', theme==='dark' ? 'sun' : 'moon');
-  DOM.themeLabel.textContent = theme==='dark' ? 'Light Mode' : 'Dark Mode';
-  lucide.createIcons({nodes:[DOM.themeToggle]});
+  // Update active dot
+  document.querySelectorAll('.theme-dot').forEach(d => {
+    d.classList.toggle('active', d.dataset.theme === theme);
+  });
   updateChartColors();
   if(rebuild) rebuildAllCharts();
 }
@@ -700,8 +702,10 @@ function bindEvents() {
   // Sidebar
   DOM.hamburger.addEventListener('click',openSidebar);
   DOM.sidebarClose.addEventListener('click',closeSidebar);
-  // Theme
-  DOM.themeToggle.addEventListener('click',()=>{ const cur=document.documentElement.getAttribute('data-theme'); applyTheme(cur==='dark'?'light':'dark'); });
+  // Theme dots
+  document.querySelectorAll('.theme-dot').forEach(dot => {
+    dot.addEventListener('click', () => applyTheme(dot.dataset.theme));
+  });
   // Modal
   DOM.openAddModal.addEventListener('click',()=>openModal('add'));
   DOM.modalClose.addEventListener('click',closeModal);
