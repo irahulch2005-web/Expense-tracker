@@ -110,7 +110,7 @@ const monthLabel = mk => {
    THEME
 ───────────────────────────────────────────── */
 function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY) || 'dark';
+  const saved = localStorage.getItem(THEME_KEY) || 'light';
   applyTheme(saved, false);
 }
 
