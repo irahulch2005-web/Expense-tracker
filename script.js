@@ -188,25 +188,50 @@ function subscribeTransactions() {
     .orderBy('createdAt','desc')
     .onSnapshot(snap => {
       transactions = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      console.log('subscribeTransactions: snapshot received,', transactions.length, 'transactions');
       renderAll();
     }, err => {
+      console.error('subscribeTransactions failed:', err.code, err.message);
       showToast('Data sync error: ' + err.message, 'error');
     });
 }
 
 async function saveTransaction(tx) {
-  if(!currentUser) return;
-  const ref = db.collection('users').doc(currentUser.uid).collection('transactions');
-  if(tx.id && editingId) {
-    await ref.doc(tx.id).set(tx);
-  } else {
-    await ref.add({...tx, createdAt: firebase.firestore.FieldValue.serverTimestamp()});
+  if(!currentUser) {
+    console.error('saveTransaction: no currentUser — user not signed in.');
+    throw new Error('You are not signed in. Please sign out and sign in again.');
+  }
+  try {
+    const ref = db.collection('users').doc(currentUser.uid).collection('transactions');
+    if(tx.id && editingId) {
+      await ref.doc(tx.id).set(tx);
+      console.log('saveTransaction: updated doc', tx.id);
+    } else {
+      const docRef = await ref.add({...tx, createdAt: firebase.firestore.FieldValue.serverTimestamp()});
+      console.log('saveTransaction: added doc', docRef.id);
+    }
+  } catch(e) {
+    console.error('saveTransaction failed:', e.code, e.message);
+    throw e;
   }
 }
 
 async function deleteTransaction(id) {
-  if(!currentUser) return;
-  await db.collection('users').doc(currentUser.uid).collection('transactions').doc(id).delete();
+  if(!currentUser) {
+    console.error('deleteTransaction: no currentUser — user not signed in.');
+    throw new Error('You are not signed in. Please sign out and sign in again.');
+  }
+  if(!id) {
+    console.error('deleteTransaction: no id provided.');
+    throw new Error('No transaction id provided.');
+  }
+  try {
+    await db.collection('users').doc(currentUser.uid).collection('transactions').doc(id).delete();
+    console.log('deleteTransaction: delete resolved for id', id);
+  } catch(e) {
+    console.error('deleteTransaction failed:', e.code, e.message);
+    throw e;
+  }
 }
 
 /* ─────────────────────────────────────────────
