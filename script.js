@@ -187,7 +187,7 @@ function subscribeTransactions() {
     .collection('transactions')
     .orderBy('createdAt','desc')
     .onSnapshot(snap => {
-      transactions = snap.docs.map(d => ({id:d.id, ...d.data()}));
+      transactions = snap.docs.map(d => ({...d.data(), id: d.id}));
       console.log('subscribeTransactions: snapshot received,', transactions.length, 'transactions');
       renderAll();
     }, err => {
@@ -203,12 +203,12 @@ async function saveTransaction(tx) {
   }
   try {
     const ref = db.collection('users').doc(currentUser.uid).collection('transactions');
-    if(tx.id && editingId) {
+    if(editingId) {
       await ref.doc(tx.id).set(tx);
       console.log('saveTransaction: updated doc', tx.id);
     } else {
-      const docRef = await ref.add({...tx, createdAt: firebase.firestore.FieldValue.serverTimestamp()});
-      console.log('saveTransaction: added doc', docRef.id);
+      await ref.doc(tx.id).set({...tx, createdAt: firebase.firestore.FieldValue.serverTimestamp()});
+      console.log('saveTransaction: added doc', tx.id);
     }
   } catch(e) {
     console.error('saveTransaction failed:', e.code, e.message);
