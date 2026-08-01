@@ -117,9 +117,9 @@ function initTheme() {
 function applyTheme(theme, rebuild=true) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem(THEME_KEY, theme);
-  // Update active dot
-  document.querySelectorAll('.theme-dot').forEach(d => {
-    d.classList.toggle('active', d.dataset.theme === theme);
+  // Update active theme button
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.theme === theme);
   });
   updateChartColors();
   if(rebuild) rebuildAllCharts();
@@ -702,9 +702,9 @@ function bindEvents() {
   // Sidebar
   DOM.hamburger.addEventListener('click',openSidebar);
   DOM.sidebarClose.addEventListener('click',closeSidebar);
-  // Theme dots
-  document.querySelectorAll('.theme-dot').forEach(dot => {
-    dot.addEventListener('click', () => applyTheme(dot.dataset.theme));
+  // Theme buttons
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
   });
   // Modal
   DOM.openAddModal.addEventListener('click',()=>openModal('add'));
