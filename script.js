@@ -251,7 +251,7 @@ function saveBudget(val) {
 /* ─────────────────────────────────────────────
    NAVIGATION
 ───────────────────────────────────────────── */
-const SECTION_TITLES = { dashboard:'Dashboard', transactions:'Transactions', analytics:'Analytics', budget:'Budget', ai:'AI Insights' };
+const SECTION_TITLES = { dashboard:'Dashboard', transactions:'Transactions', analytics:'Analytics', budget:'Budget', ai:'AI Insights', contact:'Contact' };
 
 function switchSection(name) {
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
