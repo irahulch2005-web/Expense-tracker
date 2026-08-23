@@ -347,6 +347,7 @@ DOM.transactionForm.addEventListener('submit', async e => {
   try {
     await saveTransaction(tx);
     showToast(editingId?'Transaction updated!':'Transaction added!', 'success');
+    if(!editingId) setTimeout(()=>checkSpendingPattern(tx), 900);
     closeModal();
   } catch(err) {
     showToast('Error saving: '+err.message, 'error');
@@ -573,44 +574,129 @@ function renderCategorySpend(list) {
 }
 
 /* ─────────────────────────────────────────────
-   AI INSIGHTS
+   SPENDING PATTERN CHECK — fires right after adding
+   an expense. No API, just comparisons on real data.
 ───────────────────────────────────────────── */
-function buildTransactionSummary() {
-  const totals=sumTx(transactions);
-  const balance=totals.income-totals.expense;
-  const rate=totals.income>0?((balance/totals.income)*100).toFixed(1):0;
-  const ct={}; transactions.filter(t=>t.type==='expense').forEach(t=>{ ct[t.category]=(ct[t.category]||0)+t.amount; });
-  const topCats=Object.entries(ct).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`${CATEGORY_META[k]?.label||k}: ₹${v.toFixed(0)}`).join(', ');
-  const recent=transactions.slice(0,10).map(t=>`${t.name} (${t.type==='expense'?'-':'+'}₹${t.amount}, ${t.category}, ${t.date})`).join('\n');
-  return `User: ${currentUser?.displayName||'User'}
-Total Income: ₹${totals.income.toFixed(0)}
-Total Expenses: ₹${totals.expense.toFixed(0)}
-Net Balance: ₹${balance.toFixed(0)}
-Savings Rate: ${rate}%
-Monthly Budget: ${budget?'₹'+budget:'Not set'}
-Top Spending Categories: ${topCats||'None'}
-Total Transactions: ${transactions.length}
-Recent Transactions:
-${recent||'None'}`;
+function checkSpendingPattern(tx) {
+  if (tx.type !== 'expense') return;
+  const catLabel = CATEGORY_META[tx.category]?.label || tx.category;
+  const thisMonthKey = tx.date.slice(0, 7);
+  const d = new Date(tx.date + 'T00:00:00'); d.setMonth(d.getMonth() - 1);
+  const prevMonthKey = d.toISOString().slice(0, 7);
+
+  const catThisMonth = transactions.filter(t => t.type === 'expense' && t.category === tx.category && t.date?.slice(0, 7) === thisMonthKey && t.id !== tx.id).reduce((s, t) => s + t.amount, 0) + tx.amount;
+  const catPrevMonth = transactions.filter(t => t.type === 'expense' && t.category === tx.category && t.date?.slice(0, 7) === prevMonthKey).reduce((s, t) => s + t.amount, 0);
+
+  // Check 1: this month's category spend vs last month's, for the same category
+  if (catPrevMonth > 0) {
+    const diffPct = ((catThisMonth - catPrevMonth) / catPrevMonth) * 100;
+    if (diffPct >= 25) {
+      showToast(`📈 You're spending ${diffPct.toFixed(0)}% more on ${catLabel} this month vs last month (${fmt(catThisMonth)} vs ${fmt(catPrevMonth)}).`, 'info');
+      return;
+    }
+  }
+
+  // Check 2: is this single transaction unusually large for this category?
+  const pastSameCategory = transactions.filter(t => t.type === 'expense' && t.category === tx.category && t.id !== tx.id);
+  if (pastSameCategory.length >= 3) {
+    const avg = pastSameCategory.reduce((s, t) => s + t.amount, 0) / pastSameCategory.length;
+    if (tx.amount > avg * 2) {
+      showToast(`💡 This ${catLabel} expense (${fmt(tx.amount)}) is much higher than your usual average of ${fmt(avg)}.`, 'info');
+      return;
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────
+   AI INSIGHTS — LOCAL ENGINE (no API key, no server, no cost)
+   Generates personalized insights from your real transaction
+   data using simple financial rules — runs entirely in-browser.
+───────────────────────────────────────────── */
+function computeStats() {
+  const totals = sumTx(transactions);
+  const balance = totals.income - totals.expense;
+  const rate = totals.income > 0 ? (balance / totals.income) * 100 : 0;
+  const ct = {};
+  transactions.filter(t => t.type === 'expense').forEach(t => { ct[t.category] = (ct[t.category] || 0) + t.amount; });
+  const catEntries = Object.entries(ct).sort((a, b) => b[1] - a[1]);
+  return { totals, balance, rate, catEntries };
+}
+function pctOf(part, whole) { return whole > 0 ? ((part / whole) * 100).toFixed(1) : '0.0'; }
+
+function insightTopSpending() {
+  const { catEntries, totals } = computeStats();
+  if (!catEntries.length) return "You haven't logged any expenses yet, so I can't tell where your money's going. Add a few transactions and ask me again! 📊";
+  const top = catEntries.slice(0, 3);
+  const lines = top.map(([k, v]) => `• ${CATEGORY_META[k]?.label || k}: ${fmt(v)} (${pctOf(v, totals.expense)}% of expenses)`);
+  return `Here's where your money is going:\n\n${lines.join('\n')}\n\nYour biggest category is ${CATEGORY_META[top[0][0]]?.label || top[0][0]} — that's ${pctOf(top[0][1], totals.expense)}% of your spending. Worth a closer look! 🔍`;
+}
+function insightSaveMoney() {
+  const { catEntries, rate } = computeStats();
+  if (!catEntries.length) return "Add some transactions first, then I can suggest where to cut back! 💡";
+  const top = catEntries[0];
+  const suggestion = Math.round(top[1] * 0.2);
+  return `Your savings rate is currently ${rate.toFixed(1)}%. ${rate < 20 ? "That's a bit low — aim for 20%+ if you can." : "That's solid — keep it up!"}\n\nYour top spending category is ${CATEGORY_META[top[0]]?.label || top[0]} at ${fmt(top[1])}. Cutting just 20% there would save you ${fmt(suggestion)} this month. Try setting a category budget for it! 🎯`;
+}
+function insightFoodSpending() {
+  const { totals } = computeStats();
+  const foodTotal = transactions.filter(t => t.type === 'expense' && t.category === 'food').reduce((s, t) => s + t.amount, 0);
+  if (!totals.expense) return "No expense data yet — log a few transactions and I'll check your food spending! 🍔";
+  const share = pctOf(foodTotal, totals.expense);
+  let verdict;
+  if (share > 30) verdict = "That's quite high — food is eating up a big chunk of your budget. Consider meal planning or cooking more at home.";
+  else if (share > 15) verdict = "That's reasonable, but there might be room to trim if you're ordering out often.";
+  else verdict = "That's a healthy proportion — nice job keeping food costs in check!";
+  return `You've spent ${fmt(foodTotal)} on Food & Dining, which is ${share}% of your total expenses.\n\n${verdict}`;
+}
+function insightBudgetAdvice() {
+  const { totals } = computeStats();
+  if (!totals.income) return "Add some income transactions first so I can recommend a budget based on your actual earnings! 💰";
+  const needs = Math.round(totals.income * 0.5), wants = Math.round(totals.income * 0.3), savings = Math.round(totals.income * 0.2);
+  return `Based on your income of ${fmt(totals.income)}, here's a simple 50/30/20 split:\n\n• Needs (rent, food, bills): ${fmt(needs)}\n• Wants (entertainment, shopping): ${fmt(wants)}\n• Savings/Investments: ${fmt(savings)}\n\nYou're currently spending ${fmt(totals.expense)} total — ${totals.expense > (needs + wants) ? "a bit over the needs+wants target, worth trimming somewhere." : "within a healthy range!"} 📈`;
+}
+function insightBadHabits() {
+  const { catEntries } = computeStats();
+  if (!catEntries.length) return "No expenses logged yet — add some transactions and I'll flag any habits worth watching! 👀";
+  const smallFrequent = transactions.filter(t => t.type === 'expense' && ['food', 'entertainment', 'shopping'].includes(t.category));
+  const count = smallFrequent.length;
+  const total = smallFrequent.reduce((s, t) => s + t.amount, 0);
+  if (!count) return "I don't see much discretionary spending in food, entertainment or shopping — looking disciplined! ✅";
+  return `You've made ${count} discretionary purchase${count === 1 ? '' : 's'} (food, entertainment, shopping) totaling ${fmt(total)}. Small, frequent spends like these often add up more than people realize — tracking each one, like you're already doing, is the best way to stay ahead of it. 📝`;
+}
+function insightSavingsForecast() {
+  const { totals, balance } = computeStats();
+  if (!totals.income) return "Add some income and expense data first, then I can forecast your savings! 🔮";
+  const sixMonth = balance * 6;
+  return `At your current pace, you're netting ${fmt(balance)} per month.\n\nIf that stays steady, in 6 months you'd have saved roughly ${fmt(sixMonth)} (before interest or one-off expenses). ${balance <= 0 ? "Right now you're breaking even or spending more than you earn — worth tightening up a category or two." : "Keep it consistent and that adds up nicely!"} 📅`;
+}
+function insightGeneral() {
+  const { totals, balance, rate, catEntries } = computeStats();
+  if (!transactions.length) return "Add a few transactions and I can give you a full breakdown of your spending! 📊";
+  const topCat = catEntries[0];
+  return `Quick snapshot:\n\n• Income: ${fmt(totals.income)}\n• Expenses: ${fmt(totals.expense)}\n• Balance: ${fmt(balance)}\n• Savings rate: ${rate.toFixed(1)}%\n${topCat ? `• Top spending category: ${CATEGORY_META[topCat[0]]?.label || topCat[0]} (${fmt(topCat[1])})` : ''}\n\nAsk me about your top spending areas, food costs, budget advice, bad habits, or a savings forecast for more specific tips!`;
+}
+function generateInsight(userMessage) {
+  const msg = userMessage.toLowerCase();
+  if (/top|most|where.*spend|spending area/.test(msg)) return insightTopSpending();
+  if (/save more|save money|cut back|reduce spend/.test(msg)) return insightSaveMoney();
+  if (/food|dining|eating|restaurant/.test(msg)) return insightFoodSpending();
+  if (/budget/.test(msg)) return insightBudgetAdvice();
+  if (/bad habit|worst habit|habits/.test(msg)) return insightBadHabits();
+  if (/forecast|6 months|months.*save|project/.test(msg)) return insightSavingsForecast();
+  if (/complete analysis|analyze|overview|summary|recommendation/.test(msg)) {
+    return `${insightGeneral()}\n\n${insightTopSpending()}\n\n${insightSaveMoney()}`;
+  }
+  return insightGeneral();
 }
 
 async function askAI(userMessage) {
-  if(!transactions.length) { addAIMessage('ai','Please add some transactions first so I can analyze your spending! 📊'); return; }
+  if (!transactions.length) { addAIMessage('ai', 'Please add some transactions first so I can analyze your spending! 📊'); return; }
   addAIMessage('user', userMessage);
-  const thinkingEl=addAIMessage('ai','⏳ Analyzing your finances...', true);
-  try {
-    const summary=buildTransactionSummary();
-    const systemPrompt=`You are Spendly AI, a friendly and helpful personal finance advisor. You have access to the user's transaction data. Be concise, practical, and encouraging. Use ₹ for Indian Rupees. Give specific actionable advice based on their actual data. Keep responses under 200 words.`;
-    const userPrompt=`Here is my financial data:\n${summary}\n\nMy question: ${userMessage}`;
-    const response=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:systemPrompt,messages:[{role:'user',content:userPrompt}]})});
-    const data=await response.json();
+  const thinkingEl = addAIMessage('ai', 'Analyzing your finances...', true);
+  setTimeout(() => {
     thinkingEl.remove();
-    const reply=data.content?.[0]?.text||'Sorry, I could not analyze your data right now.';
-    addAIMessage('ai', reply);
-  } catch(e) {
-    thinkingEl.remove();
-    addAIMessage('ai','Sorry, AI is unavailable right now. Please try again later.');
-  }
+    addAIMessage('ai', generateInsight(userMessage));
+  }, 450);
 }
 
 function addAIMessage(role, text, isThinking=false) {
